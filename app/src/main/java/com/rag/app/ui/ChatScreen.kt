@@ -44,8 +44,28 @@ fun ChatScreen(orchestrator: RagOrchestrator) {
     var inputText by remember { mutableStateOf("") }
     var isProcessingDoc by remember { mutableStateOf(false) }
     var isGenerating by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableFloatStateOf(100f) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
     var isDownloadingModel by remember { mutableStateOf(false) }
+    var downloadStatusText by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        if (!orchestrator.modelDownloader.isModelReady()) {
+            isDownloadingModel = true
+            orchestrator.modelDownloader.downloadModels().collect { progress ->
+                downloadProgress = progress.progressPercentage
+                downloadStatusText = if (progress.error != null) {
+                    "Error downloading model: ${progress.error}"
+                } else if (progress.isCompleted) {
+                    "Qwen2.5 model download complete!"
+                } else {
+                    "Downloading Qwen2.5-0.5B-Instruct model: ${progress.bytesDownloaded / 1_048_576} MB / ${progress.totalBytes / 1_048_576} MB (${progress.progressPercentage.toInt()}%)"
+                }
+                if (progress.isCompleted || progress.error != null) {
+                    isDownloadingModel = false
+                }
+            }
+        }
+    }
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -92,10 +112,14 @@ fun ChatScreen(orchestrator: RagOrchestrator) {
                 .background(MaterialTheme.colorScheme.background)
         ) {
             AnimatedVisibility(visible = isDownloadingModel) {
-                LinearProgressIndicator(
-                    progress = { downloadProgress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                    Text(downloadStatusText, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { downloadProgress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             LazyColumn(

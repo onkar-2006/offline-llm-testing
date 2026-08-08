@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class DownloadProgress(
     val bytesDownloaded: Long,
@@ -19,44 +22,59 @@ data class DownloadProgress(
 
 class ModelDownloader(private val context: Context) {
 
-    // Default specified LLM: Qwen2.5-0.5B-Instruct Q4_K_M GGUF (~390 MB)
     val qwenModelUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    val embeddingModelUrl = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/raw/main/model.tflite"
 
     fun getLlamaModelFile(): File = File(context.filesDir, "qwen2.5-0.5b-instruct-q4_k_m.gguf")
     fun getEmbeddingModelFile(): File = File(context.filesDir, "all-MiniLM-L6-v2.tflite")
 
     fun isModelReady(): Boolean {
-        // Return true if local file exists or simulate for initial execution
-        return getLlamaModelFile().exists() || true
+        val f = getLlamaModelFile()
+        return f.exists() && f.length() > 0L
     }
 
     fun downloadModels(): Flow<DownloadProgress> = flow {
         val targetFile = getLlamaModelFile()
-        if (targetFile.exists() && targetFile.length() > 0) {
-            emit(DownloadProgress(390_000_000, 390_000_000, isCompleted = true))
+        if (targetFile.exists() && targetFile.length() > 300_000_000L) {
+            emit(DownloadProgress(targetFile.length(), targetFile.length(), isCompleted = true))
             return@flow
         }
 
-        // Simulated progress stream for downloading GGUF binary over network
-        val totalSize = 390_000_000L // ~390 MB
-        var current = 0L
-        val step = 15_000_000L
-
-        while (current < totalSize) {
-            current += step
-            if (current > totalSize) current = totalSize
-            emit(DownloadProgress(current, totalSize))
-            kotlinx.coroutines.delay(200)
-        }
-
-        // Create empty placeholder file to signify download readiness
         try {
-            targetFile.createNewFile()
+            val url = URL(qwenModelUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 15000
+            connection.readTimeout = 15000
+            connection.instanceFollowRedirects = true
+            connection.connect()
+
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                emit(DownloadProgress(0, 0, isCompleted = false, error = "HTTP ${connection.responseCode} Server Error"))
+                return@flow
+            }
+
+            val fileLength = connection.contentLengthLong
+            val inputStream = connection.inputStream
+            val outputStream = FileOutputStream(targetFile)
+
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            var totalBytesRead = 0L
+
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+                totalBytesRead += bytesRead
+                emit(DownloadProgress(totalBytesRead, fileLength))
+            }
+
+            outputStream.flush()
+            outputStream.close()
+            inputStream.close()
+
+            emit(DownloadProgress(totalBytesRead, fileLength, isCompleted = true))
         } catch (e: Exception) {
             e.printStackTrace()
+            emit(DownloadProgress(0, 0, isCompleted = false, error = e.localizedMessage))
         }
-
-        emit(DownloadProgress(totalSize, totalSize, isCompleted = true))
     }.flowOn(Dispatchers.IO)
 }

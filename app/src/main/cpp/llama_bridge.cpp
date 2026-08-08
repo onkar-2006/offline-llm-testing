@@ -41,7 +41,7 @@ Java_com_rag_app_data_llm_LlamaBridge_generateTokensNative(
 
     // Locate callback method on TokenCallback interface
     jclass callbackClass = env->GetObjectClass(callbackObj);
-    jmethodcallId = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID jmethodcallId = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
 
     if (!jmethodcallId) {
         LOGE("Could not find onToken method in callback object");
